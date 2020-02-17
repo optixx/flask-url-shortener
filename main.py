@@ -2,6 +2,7 @@ from base64 import b64encode
 from hashlib import blake2b
 import random
 import re
+import os
 
 from flask import Flask, abort, jsonify, redirect, request
 
@@ -52,6 +53,23 @@ def bad_request(message):
     response = jsonify({'message': message})
     response.status_code = 400
     return response
+
+
+def root_dir():  # pragma: no cover
+    return os.path.abspath(os.path.dirname(__file__))
+
+
+def get_file(filename):  # pragma: no cover
+    try:
+        src = os.path.join(root_dir(), filename)
+        return open(src).read()
+    except IOError as exc:
+        return str(exc)
+
+
+@app.route('/index', methods=['GET'])
+def index():
+    return get_file("index.html")
 
 
 @app.route('/shorten_url', methods=['POST'])
