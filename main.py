@@ -1,13 +1,60 @@
-from base64 import b64encode
-from hashlib import blake2b
+# -*- coding: utf-8 -*-
 import random
 import re
 import os
-
-from flask import Flask, abort, jsonify, redirect, request
+import sqlite3 
+from flask import Flask, abort, jsonify, redirect, request, g
+from base64 import b64encode
+from hashlib import blake2b
 
 app = Flask(__name__)
 
+
+DATABASE = 'database.db'
+
+
+def db_init():
+    db = sqlite3.connect(DATABASE)
+    c = db.cursor()
+    c.execute('''CREATE TABLE shortened  (url text, alias texti, UNIQUE(url))''')
+ 
+
+def db_connection():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+    return db
+
+
+def db_fetch(query, args=(), one=False):
+    cur = db_connection().execute(query, args)
+    rv = cur.fetchall()
+    cur.close()
+    return (rv[0] if rv else None) if one else rv
+
+
+def db_execute(query, args=()):
+    cur = db_connection().execute(query, args)
+    cur.close()
+    db_connection().commit()
+
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+def root_dir():  # pragma: no cover
+    return os.path.abspath(os.path.dirname(__file__))
+
+
+def get_file(filename):  # pragma: no cover
+    try:
+        src = os.path.join(root_dir(), filename)
+        return open(src).read()
+    except IOError as exc:
+        return str(exc)
 
 def url_valid(url):
     """Validates a url by parsing it with a regular expression.
@@ -33,10 +80,6 @@ def shorten(url):
     """
     url_hash = blake2b(str.encode(url), digest_size=DIGEST_SIZE)
 
-    while url_hash in shortened:
-        url += str(random.randint(0, 9))
-        url_hash = blake2b(str.encode(url), digest_size=DIGEST_SIZE)
-
     b64 = b64encode(url_hash.digest(), altchars=b'-_')
     return b64.decode('utf-8')
 
@@ -55,17 +98,6 @@ def bad_request(message):
     return response
 
 
-def root_dir():  # pragma: no cover
-    return os.path.abspath(os.path.dirname(__file__))
-
-
-def get_file(filename):  # pragma: no cover
-    try:
-        src = os.path.join(root_dir(), filename)
-        return open(src).read()
-    except IOError as exc:
-        return str(exc)
-
 
 @app.route('/index', methods=['GET'])
 def index():
@@ -74,18 +106,6 @@ def index():
 
 @app.route('/shorten_url', methods=['POST'])
 def shorten_url():
-    """POST endpoint that looks for a supplied string called "url",
-    contained inside a json object. Then validates this url and
-    either returns an error response as appropriate, or generates a
-    shortened url, stores the shortened url, and then returns it - if valid.
-
-    Parameters:
-    None. However, the global request object should contain the aforementioned json.
-
-    Return values:
-    A response signifying success or error.
-    Successes contain the shortened url, errors contain an appropriate message.
-    """
     if not request.json:
         return bad_request('Url must be provided in json format.')
     
@@ -100,46 +120,31 @@ def shorten_url():
     if not url_valid(url):
         return bad_request('Provided url is not valid.')
 
-    shortened_url = shorten(url)
-    shortened[shortened_url] = url
+    alias = shorten(url)
+    try:
+        db_execute("INSERT INTO shortened (url, alias) VALUES ('%s', '%s')" % (url, alias))
+    except sqlite3.IntegrityError:
+        rs = db_fetch("SELECT alias FROM shortened WHERE url='%s'" % url, one=True)
+        alias = rs[0]
 
-    return jsonify({'shortened_url': shortened_url}), 201
+    return jsonify({'alias': alias}), 201
 
 
 @app.route('/shorten_url', methods=['GET'])
 def shorten_url_get():
-    """GET endpoint that provides a more useful error message for when
-    a user of the api tries to shorten a url through GET.
-
-    Parameters:
-    None.
-
-    Return values:
-    A response with an appropriate error message and a 400 code.
-    """
     return bad_request('Must use POST.')
 
 
 @app.route('/<alias>', methods=['GET'])
 def get_shortened(alias):
-    """GET endpoint that takes an alias (shortened url) and redirects if successfull.
-    Otherwise returns a bad request.
-
-    Arguments:
-    alias, the string representing a shortened url.
-
-    Return values:
-    A Flask redirect, with code 302.
-    """
-    if alias not in shortened:
+    rs = db_fetch("SELECT url FROM shortened WHERE alias='%s'" % alias, one=True)
+    print(rs)
+    if rs is None: 
         return bad_request('Unknown alias.')
 
-    url = shortened[alias]
-    
-    return redirect(url, code=302)
+    return redirect(rs[0], code=302)
 
-# From https://stackoverflow.com/questions/7160737/python-how-to-validate-a-url-in-python-malformed-or-not#7160778
-# Slightly modified to not use ftp.
+
 regex = re.compile(
         r'^(?:http)s?://'
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'
@@ -148,7 +153,6 @@ regex = re.compile(
         r'(?::\d+)?'
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
 DIGEST_SIZE = 9  # 72 bits of entropy.
-shortened = {}
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -2,25 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>jQuery.post demo</title>
+  <title>Shorten</title>
   <script src="https://code.jquery.com/jquery-3.4.1.js"></script>
 </head>
 <body>
- 
 <form action="/" id="shortenForm">
   <input type="text" name="url" placeholder="https://">
   <input type="submit" value="Shorten">
 </form>
 <div id="result"></div>
- 
 <script>
-// Attach a submit handler to the form
 $( "#shortenForm" ).submit(function( event ) {
- 
-  // Stop form from submitting normally
   event.preventDefault();
- 
-  // Get some values from elements on the page:
   var $form = $( this );
   url = $form.find( "input[name='url']" ).val();
   $.ajax({
@@ -30,10 +23,9 @@ $( "#shortenForm" ).submit(function( event ) {
     contentType: 'application/json',
     data: JSON.stringify({'url': url}),
     success: function (data, status) {
-        $( "#result" ).empty().html('<a target="_blank" href="http://localhost:5000/' + data.shortened_url + '">' + data.shortened_url +'</a>' );
+        $( "#result" ).empty().html('<a target="_blank" href="http://localhost:5000/' + data.alias + '">' + data.alias +'</a>' );
     }});
   });
 </script>
- 
 </body>
 </html>
