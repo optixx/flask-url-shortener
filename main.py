@@ -155,4 +155,4 @@ regex = re.compile(
 DIGEST_SIZE = 9  # 72 bits of entropy.
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0')
